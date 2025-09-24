@@ -54,6 +54,7 @@ lazy_static! {
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
+            syscall_counts: [0; 411], // 初始化所有系统调用计数为 0
         }; MAX_APP_NUM];
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
@@ -168,4 +169,30 @@ pub fn suspend_current_and_run_next() {
 pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
+}
+
+/// Get the id of current running task
+pub fn get_current_task_id() -> usize {
+    TASK_MANAGER.inner.exclusive_access().current_task
+}
+
+/// Get a reference to the task manager
+pub fn get_task_manager() -> &'static TaskManager {
+    &TASK_MANAGER
+}
+
+/// Get the syscall counts of current task
+pub fn get_current_task_syscall_counts() -> [usize; 411] {
+    let current_task_id = get_current_task_id();
+    let inner = get_task_manager().inner.exclusive_access();
+    inner.tasks[current_task_id].syscall_counts
+}
+
+/// Increment syscall count for current task
+pub fn increment_syscall_count(syscall_id: usize) {
+    let current_task_id = get_current_task_id();
+    if current_task_id < crate::config::MAX_APP_NUM {
+        let mut inner = get_task_manager().inner.exclusive_access();
+        inner.tasks[current_task_id].syscall_counts[syscall_id] += 1;
+    }
 }

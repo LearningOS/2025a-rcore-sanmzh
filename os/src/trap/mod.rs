@@ -64,7 +64,7 @@ pub fn trap_handler(cx: &mut TrapContext) -> &mut TrapContext {
             println!("[kernel] IllegalInstruction in application, kernel killed it.");
             exit_current_and_run_next();
         }
-        Trap::Interrupt(Interrupt::SupervisorTimer) => {
+        Trap::Interrupt(Interrupt::SupervisorTimer) => {    //  S 特权级时钟中断
             set_next_trigger();
             suspend_current_and_run_next();
         }

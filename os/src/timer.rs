@@ -19,7 +19,7 @@ pub fn get_time() -> usize {
 
 /// get current time in milliseconds
 #[allow(dead_code)]
-pub fn get_time_ms() -> usize {
+pub fn get_time_ms() -> usize {         //  get_time_us 可以以微秒为单位返回当前计数器的值
     time::read() * MSEC_PER_SEC / CLOCK_FREQ
 }
 
@@ -30,6 +30,7 @@ pub fn get_time_us() -> usize {
 }
 
 /// Set the next timer interrupt
-pub fn set_next_trigger() {
+pub fn set_next_trigger() {     //  set_next_trigger 函数对 set_timer 进行了封装， 它首先读取当前 mtime 的值，然后计算出 10ms 之内计数器的增量，再将 mtimecmp 设置为二者的和。 这样，10ms 之后一个 S 特权级时钟中断就会被触发。
     set_timer(get_time() + CLOCK_FREQ / TICKS_PER_SEC);
 }
+// 至于增量的计算方式， CLOCK_FREQ 是一个预先获取到的各平台不同的时钟频率，单位为赫兹，也就是一秒钟之内计数器的增量。 它可以在 config 子模块中找到。10ms 的话只需除以常数 TICKS_PER_SEC 也就是 100 即可。

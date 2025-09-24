@@ -15,7 +15,7 @@ __switch:
     # save kernel stack of current task
     sd sp, 8(a0)
     # save ra & s0~s11 of current execution
-    sd ra, 0(a0)
+    sd ra, 0(a0)        # 把当前 ra 寄存器的值存储到以 a0 为地址的内存位置。
     .set n, 0
     .rept 12
         SAVE_SN %n
