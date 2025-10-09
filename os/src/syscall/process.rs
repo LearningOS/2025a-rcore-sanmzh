@@ -1,11 +1,23 @@
 //! Process management syscalls
-use crate::task::{change_program_brk, exit_current_and_run_next, suspend_current_and_run_next};
+use crate::{
+    task::{change_program_brk, exit_current_and_run_next, suspend_current_and_run_next,
+        current_user_token, get_current_task_id, get_syscall_cnt, increase_syscall_cnt,
+        map_for_current_task, unmap_for_current_task},
+    timer::get_time_us,
+    mm::{PageTable, VirtAddr, translated_byte_buffer, MapPermission},
+    config::PAGE_SIZE,
+};
 
 #[repr(C)]
 #[derive(Debug)]
 pub struct TimeVal {
     pub sec: usize,
     pub usec: usize,
+}
+
+/// 更新当前 task 相应 syscall 调用次数
+pub fn update_syscall_cnt(_syscall_id: usize) {
+    increase_syscall_cnt(get_current_task_id(), _syscall_id);
 }
 
 /// task exits and submit an exit code
@@ -27,26 +39,126 @@ pub fn sys_yield() -> isize {
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
 pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
     trace!("kernel: sys_get_time");
-    -1
+    let us = get_time_us();
+    let ts = TimeVal {
+        sec: us / 1_000_000,
+        usec: us % 1_000_000,
+    };
+    let size_of_timeval = core::mem::size_of::<TimeVal>();
+    let buffers = translated_byte_buffer(current_user_token(), _ts as *const u8, size_of_timeval);
+    let ts_byte_arr: &[u8] = unsafe {
+        core::slice::from_raw_parts(
+            &ts as *const TimeVal as *const u8,
+            size_of_timeval
+        )
+    };
+    let mut ts_idx: usize = 0;
+    for buffer in buffers {
+        buffer.copy_from_slice(&ts_byte_arr[ts_idx..ts_idx+buffer.len()]);
+        ts_idx += buffer.len();
+    }
+    0
 }
 
 /// TODO: Finish sys_trace to pass testcases
 /// HINT: You might reimplement it with virtual memory management.
 pub fn sys_trace(_trace_request: usize, _id: usize, _data: usize) -> isize {
     trace!("kernel: sys_trace");
-    -1
+    let token = current_user_token();
+    let page_table = PageTable::from_token(token);
+    match _trace_request {
+        0 => {      // 表示读取当前任务 id 地址处一个字节的无符号整数值。
+            let vaddr = VirtAddr::from(_id as *const u8 as usize);
+            let vpn = vaddr.floor();
+            match page_table.translate(vpn) {
+                Some(pte) => {
+                    if !pte.is_valid() || !pte.usermode() || !pte.readable() { // 不可读
+                        -1
+                    } else {
+                        let ppn = pte.ppn();
+                        ppn.get_bytes_array()[vaddr.page_offset()] as isize
+                    }
+                },
+                None => -1, // 不可见
+            }
+        },
+        1 => {      // 表示写入 data （作为 u8，即只考虑最低位的一个字节）到该用户程序 id 地址处。
+            let vaddr = VirtAddr::from(_id as *mut u8 as usize);
+            let vpn = vaddr.floor();
+            match page_table.translate(vpn) {
+                Some(pte) => {
+                    if !pte.is_valid() || !pte.usermode() || !pte.writable() { // 不可写
+                        -1
+                    } else {
+                        let ppn = pte.ppn();
+                        ppn.get_bytes_array()[vaddr.page_offset()] = _data as u8; // 只需要低位 1 个字节
+                        0
+                    }
+                },
+                None => -1, // 不可见
+            }
+        },
+        2 => {      // 表示查询当前任务调用编号为 id 的系统调用的次数，返回值为这个调用次数。本次调用也计入统计 。
+            let syscall_id = _id;
+            let current_task_id = get_current_task_id();
+            let ret = get_syscall_cnt(current_task_id, syscall_id) as isize;
+            ret
+        },
+        _ => -1,
+    }
 }
+
 
 // YOUR JOB: Implement mmap.
 pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
     trace!("kernel: sys_mmap NOT IMPLEMENTED YET!");
-    -1
+    if _start % PAGE_SIZE != 0 { // 如果虚拟地址没有按页对齐直接失败
+        return -1;
+    }
+    if _port & !0x7 != 0 { // _port 其余位必须为 0
+        return -1;
+    }
+    if _port & 0x7 == 0 { // 这样的内存无意义
+        return -1;
+    }
+    let num_pages = (_len + PAGE_SIZE - 1) / PAGE_SIZE; // page 数向上取整
+    let mut map_perm: MapPermission = MapPermission::U; // MapPermission::V 会在 page_table 的 map 中被加上
+    if _port & 0x1 != 0 { // read
+        map_perm |= MapPermission::R;
+    }
+    if _port & 0x2 != 0 { // write
+        map_perm |= MapPermission::W;
+    }
+    if _port & 0x4 != 0 { // execute
+        map_perm |= MapPermission::X;
+    }
+    let vpn = VirtAddr::from(_start).floor();
+    match map_for_current_task(vpn, num_pages, map_perm) {
+        0 => {
+            return 0;
+        },
+        _ => {
+            return -1;
+        }
+    };
 }
 
 // YOUR JOB: Implement munmap.
 pub fn sys_munmap(_start: usize, _len: usize) -> isize {
     trace!("kernel: sys_munmap NOT IMPLEMENTED YET!");
-    -1
+    if _start % PAGE_SIZE != 0 { // 如果虚拟地址没有按页对齐直接失败
+        return -1;
+    }
+    let num_pages = (_len + PAGE_SIZE - 1) / PAGE_SIZE; // page 数向上取整
+    let vpn = VirtAddr::from(_start).floor();
+    match unmap_for_current_task(vpn, num_pages) {
+        0 => {
+            return 0;
+        },
+        _ => {
+            return -1;
+        },
+    };
 }
 /// change data segment size
 pub fn sys_sbrk(size: i32) -> isize {
