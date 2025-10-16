@@ -13,8 +13,10 @@ pub struct EasyFileSystem {
     pub inode_bitmap: Bitmap,
     ///Data bitmap
     pub data_bitmap: Bitmap,
-    inode_area_start_block: u32,
-    data_area_start_block: u32,
+    ///
+    pub inode_area_start_block: u32,
+    ///
+    pub data_area_start_block: u32,
 }   // 包含索引节点和数据块的两个位图 inode_bitmap 和 data_bitmap ，还记录下索引节点区域和数据块区域起始块编号方便确定每个索引节点和数据块在磁盘上的具体位置。我们还要在其中保留块设备的一个指针 block_device ，在进行后续操作的时候，该指针会被拷贝并传递给下层的数据结构，让它们也能够直接访问块设备。
 
 type DataBlock = [u8; BLOCK_SZ];

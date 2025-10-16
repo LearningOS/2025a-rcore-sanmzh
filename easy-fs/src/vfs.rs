@@ -10,8 +10,10 @@ use spin::{Mutex, MutexGuard};
 pub struct Inode {  // 我们设计索引节点 Inode 暴露给文件系统的使用者，让他们能够直接对文件和目录进行操作。
     block_id: usize,
     block_offset: usize,    // block_id 和 block_offset 记录该 Inode 对应的 DiskInode 保存在磁盘上的具体位置方便我们后续对它进行访问。
-    fs: Arc<Mutex<EasyFileSystem>>,     // fs 是指向 EasyFileSystem 的一个指针，因为对 Inode 的种种操作实际上都是要通过底层的文件系统来完成。
-    block_device: Arc<dyn BlockDevice>,
+    ///
+    pub fs: Arc<Mutex<EasyFileSystem>>,     // fs 是指向 EasyFileSystem 的一个指针，因为对 Inode 的种种操作实际上都是要通过底层的文件系统来完成。
+    ///
+    pub block_device: Arc<dyn BlockDevice>,
 }
 
 impl Inode {
@@ -29,8 +31,16 @@ impl Inode {
             block_device,
         }
     }       // 在 root_inode 中，主要是在 Inode::new 的时候将传入的 inode_id 设置为 0 ，因为根目录对应于文件系统中第一个分配的 inode ，因此它的 inode_id 总会是 0 。同时在设计上，我们不会在 Inode::new 中尝试获取整个 EasyFileSystem 的锁来查询 inode 在块设备中的位置，而是在调用它之前预先查询并作为参数传过去。
+    ///
+    pub fn get_block_id(&self) -> u32 {
+        self.block_id as u32
+    }
+    ///
+    pub fn get_block_offset(&self) -> usize {
+        self.block_offset as usize
+    }
     /// Call a function over a disk inode to read it
-    fn read_disk_inode<V>(&self, f: impl FnOnce(&DiskInode) -> V) -> V {
+    pub fn read_disk_inode<V>(&self, f: impl FnOnce(&DiskInode) -> V) -> V {
         get_block_cache(self.block_id, Arc::clone(&self.block_device))
             .lock()
             .read(self.block_offset, f)

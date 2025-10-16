@@ -13,6 +13,7 @@ use alloc::vec::Vec;
 use bitflags::*;
 use easy_fs::{EasyFileSystem, Inode};
 use lazy_static::*;
+use core::{any::Any};
 
 /// inode in memory
 /// A wrapper around a filesystem inode
@@ -20,12 +21,14 @@ use lazy_static::*;
 pub struct OSInode {    // 内核将 easy-fs 提供的 Inode 进一步封装为 OS 中的索引节点 OSInode 。
     readable: bool,
     writable: bool,
-    inner: UPSafeCell<OSInodeInner>,
+    ///
+    pub inner: UPSafeCell<OSInodeInner>,
 }   // OSInode 就表示进程中一个被打开的常规文件或目录。 readable/writable 分别表明该文件是否允许通过 sys_read/write 进行读写，读写过程中的偏移量 offset 和 Inode 则加上互斥锁丢到 OSInodeInner 中。
 /// The OS inode inner in 'UPSafeCell'
 pub struct OSInodeInner {
     offset: usize,
-    inode: Arc<Inode>,
+    ///
+    pub inode: Arc<Inode>,
 }
 
 impl OSInode {
@@ -155,5 +158,8 @@ impl File for OSInode { // OSInode 也是要一种要放到进程文件描述符
             total_write_size += write_size;
         }
         total_write_size
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }

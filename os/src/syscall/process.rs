@@ -20,6 +20,20 @@ pub struct TimeVal {
     pub usec: usize,
 }
 
+/// 为了方便内核向用户态进程拷贝数据而实现的函数
+pub fn os_data_copy_to_user(os_ptr: *const u8, user_ptr: *const u8, data_len: usize) {
+    let token = current_user_token();
+    let user_buffers = translated_byte_buffer(token, user_ptr, data_len);
+    let os_data_byte_arr: &[u8] = unsafe { 
+        core::slice::from_raw_parts(os_ptr, data_len) 
+    };
+    let mut byte_idx: usize = 0;
+    for buffer in user_buffers {
+        buffer.copy_from_slice(&os_data_byte_arr[byte_idx..byte_idx+buffer.len()]);
+        byte_idx += buffer.len();
+    }
+}
+
 pub fn sys_exit(exit_code: i32) -> ! {
     trace!("kernel:pid[{}] sys_exit", current_task().unwrap().pid.0);
     exit_current_and_run_next(exit_code);
