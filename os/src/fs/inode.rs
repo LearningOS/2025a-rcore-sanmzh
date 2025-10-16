@@ -17,11 +17,11 @@ use lazy_static::*;
 /// inode in memory
 /// A wrapper around a filesystem inode
 /// to implement File trait atop
-pub struct OSInode {
+pub struct OSInode {    // 内核将 easy-fs 提供的 Inode 进一步封装为 OS 中的索引节点 OSInode 。
     readable: bool,
     writable: bool,
     inner: UPSafeCell<OSInodeInner>,
-}
+}   // OSInode 就表示进程中一个被打开的常规文件或目录。 readable/writable 分别表明该文件是否允许通过 sys_read/write 进行读写，读写过程中的偏移量 offset 和 Inode 则加上互斥锁丢到 OSInodeInner 中。
 /// The OS inode inner in 'UPSafeCell'
 pub struct OSInodeInner {
     offset: usize,
@@ -125,7 +125,7 @@ pub fn open_file(name: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {
     }
 }
 
-impl File for OSInode {
+impl File for OSInode { // OSInode 也是要一种要放到进程文件描述符表中，通过 sys_read/write 进行读写的文件，我们需要为它实现 File Trait ：
     fn readable(&self) -> bool {
         self.readable
     }

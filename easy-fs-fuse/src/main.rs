@@ -30,6 +30,7 @@ fn main() {
 }
 
 fn easy_fs_pack() -> std::io::Result<()> {
+// 为了实现 easy-fs-fuse 和 os/user 的解耦，第 6~21 行使用 clap crate 进行命令行参数解析，需要通过 -s 和 -t 分别指定应用的源代码目录和保存应用 ELF 的目录而不是在 easy-fs-fuse 中硬编码。如果解析成功的话它们会分别被保存在变量 src_path 和 target_path 中。
     let matches = App::new("EasyFileSystem packer")
         .arg(
             Arg::with_name("source")
@@ -49,6 +50,7 @@ fn easy_fs_pack() -> std::io::Result<()> {
     let src_path = matches.value_of("source").unwrap();
     let target_path = matches.value_of("target").unwrap();
     println!("src_path = {}\ntarget_path = {}", src_path, target_path);
+// 创建 4MiB 的 easy-fs 镜像文件、进行 easy-fs 初始化、获取根目录 inode 。
     let block_file = Arc::new(BlockFile(Mutex::new({
         let f = OpenOptions::new()
             .read(true)
@@ -61,6 +63,7 @@ fn easy_fs_pack() -> std::io::Result<()> {
     // 16MiB, at most 4095 files
     let efs = EasyFileSystem::create(block_file, 16 * 2048, 1);
     let root_inode = Arc::new(EasyFileSystem::root_inode(&efs));
+// 获取源码目录中的每个应用的源代码文件并去掉后缀名，收集到向量 apps 中。
     let apps: Vec<_> = read_dir(src_path)
         .unwrap()
         .into_iter()
@@ -70,6 +73,7 @@ fn easy_fs_pack() -> std::io::Result<()> {
             name_with_ext
         })
         .collect();
+// 枚举 apps 中的每个应用，从放置应用执行程序的目录中找到对应应用的 ELF 文件（这是一个 HostOS 上的文件）并将数据读入内存。接着需要在我们的 easy-fs 中创建一个同名文件并将 ELF 数据写入到这个文件中。这个过程相当于将 HostOS 上的文件系统中的一个文件复制到我们的 easy-fs 中。
     for app in apps {
         // load app data from host file system
         let mut host_file = File::open(format!("{}{}", target_path, app)).unwrap();

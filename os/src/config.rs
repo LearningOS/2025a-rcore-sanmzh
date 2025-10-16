@@ -22,4 +22,4 @@ pub const CLOCK_FREQ: usize = 12500000;
 /// the physical memory end
 pub const MEMORY_END: usize = 0x88000000;
 /// The base address of control registers in Virtio_Block device
-pub const MMIO: &[(usize, usize)] = &[(0x10001000, 0x1000)];
+pub const MMIO: &[(usize, usize)] = &[(0x10001000, 0x1000)]; // 在 config 子模块中我们硬编码 Qemu 上的 VirtIO 总线的 MMIO 地址区间（起始地址，长度）。在创建内核地址空间的时候需要建立页表映射：

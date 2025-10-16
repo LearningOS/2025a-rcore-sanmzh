@@ -141,4 +141,4 @@ pub fn block_cache_sync_all() {
     for (_, cache) in manager.queue.iter() {
         cache.lock().sync();
     }
-}
+}   // easy-fs-fuse 不用担心块缓存中的修改没有写回磁盘，因为在 easy-fs 操作过程中实现了 block_cache_sync_all 函数用以写回每次操作的结果。
