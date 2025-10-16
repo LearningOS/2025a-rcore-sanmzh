@@ -11,7 +11,7 @@ use crate::sync::UPSafeCell;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use bitflags::*;
-use easy_fs::{EasyFileSystem, Inode};
+use easy_fs::{EasyFileSystem, Inode, DIRENT_SZ, DirEntry};
 use lazy_static::*;
 use core::{any::Any};
 
@@ -162,4 +162,47 @@ impl File for OSInode { // OSInode 也是要一种要放到进程文件描述符
     fn as_any(&self) -> &dyn Any {
         self
     }
+}
+
+///
+pub fn find_inode_by_path(path: &str) -> Option<Arc<Inode>> {
+    ROOT_INODE.find(path)
+}
+
+///
+pub fn insert_dir_entry(path: &str, inode_id: u32) {
+    let mut fs = ROOT_INODE.fs.lock();
+    ROOT_INODE.modify_disk_inode(|disk_inode| {
+        // append file in the dirent
+        let file_count = (disk_inode.size as usize) / DIRENT_SZ;
+        let new_size = (file_count + 1) * DIRENT_SZ;
+        // increase size
+        ROOT_INODE.increase_size(new_size as u32, disk_inode, &mut fs);
+        // write dirent
+        let dirent = DirEntry::new(&path, inode_id);
+        disk_inode.write_at(
+            file_count * DIRENT_SZ,
+            dirent.as_bytes(),
+            &ROOT_INODE.block_device,
+        );
+    });
+}
+
+///
+pub fn delete_dir_entry(path: &str, inode_id: u32) {
+    ROOT_INODE.modify_disk_inode(|disk_inode| {
+        let file_count = (disk_inode.size as usize) / DIRENT_SZ;
+        let mut dirent = DirEntry::empty();
+        for i in 0..file_count {
+            assert_eq!(
+                disk_inode.read_at(DIRENT_SZ * i, dirent.as_bytes_mut(), &ROOT_INODE.block_device),
+                DIRENT_SZ,
+            );
+            if dirent.name() == path && dirent.inode_id() == inode_id {
+                // 覆盖掉原数据，使得该 direntry 无效
+                disk_inode.write_at(DIRENT_SZ * i, DirEntry::empty().as_bytes(), &ROOT_INODE.block_device);
+                break;
+            }
+        }
+    });
 }

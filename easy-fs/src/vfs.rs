@@ -46,7 +46,7 @@ impl Inode {
             .read(self.block_offset, f)
     }
     /// Call a function over a disk inode to modify it
-    fn modify_disk_inode<V>(&self, f: impl FnOnce(&mut DiskInode) -> V) -> V {
+    pub fn modify_disk_inode<V>(&self, f: impl FnOnce(&mut DiskInode) -> V) -> V {
         get_block_cache(self.block_id, Arc::clone(&self.block_device))
             .lock()
             .modify(self.block_offset, f)
@@ -85,7 +85,7 @@ impl Inode {
     }       // find 方法只会被根目录 Inode 调用，文件系统中其他文件的 Inode 不会调用这个方法。它首先调用 find_inode_id 方法尝试从根目录的 DiskInode 上找到要索引的文件名对应的 inode 编号。这就需要将根目录内容中的所有目录项都读到内存进行逐个比对。如果能够找到的话， find 方法会根据查到 inode 编号对应生成一个 Inode 用于后续对文件的访问。
     // 这里需要注意的是，包括 find 在内所有暴露给文件系统的使用者的文件系统操作（还包括接下来将要介绍的几种），全程均需持有 EasyFileSystem 的互斥锁（相对的，文件系统内部的操作如之前的 Inode::new 或是上面的 find_inode_id 都是假定在已持有 efs 锁的情况下才被调用的，因此它们不应尝试获取锁）。这能够保证在多核情况下，同时最多只能有一个核在进行文件系统相关操作。这样也许会带来一些不必要的性能损失，但我们目前暂时先这样做。如果我们在这里加锁的话，其实就能够保证块缓存的互斥访问了。
     /// Increase the size of a disk inode
-    fn increase_size(
+    pub fn increase_size(
         &self,
         new_size: u32,
         disk_inode: &mut DiskInode,

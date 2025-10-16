@@ -1,5 +1,5 @@
 //! File and filesystem-related syscalls
-use crate::fs::{open_file, OSInode, OpenFlags, Stat, StatMode};
+use crate::fs::{open_file, OSInode, OpenFlags, Stat, StatMode, find_inode_by_path, insert_dir_entry, delete_dir_entry};
 use crate::mm::{translated_byte_buffer, translated_str, UserBuffer};
 use crate::task::{current_task, current_user_token};
 use crate::syscall::os_data_copy_to_user;
@@ -138,7 +138,30 @@ pub fn sys_linkat(_old_name: *const u8, _new_name: *const u8) -> isize {
         "kernel:pid[{}] sys_linkat NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    let token = current_user_token();
+    let old_str = translated_str(token, _old_name); // alloc::string::String
+    let new_str = translated_str(token, _new_name);
+    if old_str == new_str { // 链接同名文件
+        return -1;
+    }
+    // 借鉴 Inode create 的逻辑
+    if let Some(inode) = find_inode_by_path(&old_str) {
+        let inode = inode.clone();
+        let block_id = inode.get_block_id() as usize;
+        let block_offset = inode.get_block_offset() as usize;
+        let inode_id = cal_inode_id(
+            block_id, block_offset, 
+            inode.fs.lock().inode_area_start_block as usize
+        );
+        inode.modify_disk_inode(|disk_inode| {
+            // increase link count
+            disk_inode.nlink += 1;
+        });
+        insert_dir_entry(&new_str, inode_id as u32);
+        0
+    } else { // 原文件不存在
+        -1
+    }
 }
 
 /// YOUR JOB: Implement unlinkat.
@@ -147,5 +170,30 @@ pub fn sys_unlinkat(_name: *const u8) -> isize {
         "kernel:pid[{}] sys_unlinkat NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    let token = current_user_token();
+    let name_str = translated_str(token, _name);
+    if let Some(inode) = find_inode_by_path(&name_str) {
+        let inode = inode.clone();
+        let block_id = inode.get_block_id() as usize;
+        let block_offset = inode.get_block_offset() as usize;
+        let inode_id = cal_inode_id(
+            block_id, block_offset, 
+            inode.fs.lock().inode_area_start_block as usize
+        );
+        let mut need_delete = false;
+        inode.modify_disk_inode(|disk_inode| {
+            // decrease link count
+            disk_inode.nlink -= 1;
+            if disk_inode.nlink == 0 {
+                need_delete = true;
+            }
+        });
+        delete_dir_entry(&name_str, inode_id as u32);
+        if need_delete {
+            inode.clear();
+        }
+        0
+    } else { // 文件不存在
+        -1
+    }
 }
