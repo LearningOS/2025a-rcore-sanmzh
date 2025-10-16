@@ -22,7 +22,7 @@ mod switch;
 #[allow(rustdoc::private_intra_doc_links)]
 mod task;
 
-use crate::fs::{open_file, OpenFlags};
+use crate::{fs::{open_file, OpenFlags}, mm::{MapPermission, StepByOne, VirtAddr, VirtPageNum}};
 use alloc::sync::Arc;
 pub use context::TaskContext;
 use lazy_static::*;
@@ -36,6 +36,7 @@ pub use processor::{
     current_task, current_trap_cx, current_user_token, run_tasks, schedule, take_current_task,
     Processor,
 };
+const BIG_STRIDE: usize = 1000_000;
 /// Suspend the current 'Running' task and run the next task in task list.
 pub fn suspend_current_and_run_next() {
     // There must be an application running.
@@ -46,6 +47,10 @@ pub fn suspend_current_and_run_next() {
     let task_cx_ptr = &mut task_inner.task_cx as *mut TaskContext;
     // Change status to Ready
     task_inner.task_status = TaskStatus::Ready;
+    // increase stride
+    let pass = BIG_STRIDE / (task_inner.priority as usize);
+    task_inner.stride += pass;
+    
     drop(task_inner);
     // ---- release current PCB
 
@@ -119,4 +124,41 @@ lazy_static! {
 ///Add init process to the manager
 pub fn add_initproc() {
     add_task(INITPROC.clone());
+}
+
+///
+pub fn map_for_current_task(start_vpn: VirtPageNum, num_pages: usize, map_perm: MapPermission) -> isize {
+    let current_task = current_task().unwrap();
+    let memoty_set = &mut current_task.inner_exclusive_access().memory_set;
+    let mut end_vpn = start_vpn;
+    for _ in 0..num_pages {
+        if let Some(pte) = memoty_set.translate(end_vpn) {
+            if pte.is_valid() {
+                return -1;
+            }
+        }
+        end_vpn.step();
+    }
+    let start_va = VirtAddr::from(start_vpn);
+    let end_va = VirtAddr::from(end_vpn);
+    memoty_set.insert_framed_area(start_va, end_va, map_perm);
+    0
+}
+
+/// 
+pub fn unmap_for_current_task(start_vpn: VirtPageNum, num_pages: usize) -> isize {
+    let current_task = current_task().unwrap();
+    let memoty_set = &mut current_task.inner_exclusive_access().memory_set;
+    let mut end_vpn = start_vpn;
+    for _ in 0..num_pages {
+        if let Some(pte) = memoty_set.translate(end_vpn) {
+            if !pte.is_valid() {
+                return -1;
+            }
+
+            memoty_set.unmap_from_page_table(end_vpn);
+            end_vpn.step();
+        }
+    }
+    0
 }
