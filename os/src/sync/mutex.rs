@@ -1,5 +1,7 @@
 //! Mutex (spin-like and blocking(sleep))
 
+use core::any::Any;
+
 use super::UPSafeCell;
 use crate::task::TaskControlBlock;
 use crate::task::{block_current_and_run_next, suspend_current_and_run_next};
@@ -12,6 +14,8 @@ pub trait Mutex: Sync + Send {
     fn lock(&self);
     /// Unlock the mutex
     fn unlock(&self);
+    ///
+    fn as_any(&self) -> &dyn Any;
 }
 
 /// Spinlock Mutex struct
@@ -50,16 +54,25 @@ impl Mutex for MutexSpin {
         let mut locked = self.locked.exclusive_access();
         *locked = false;
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 /// Blocking Mutex struct
 pub struct MutexBlocking {
-    inner: UPSafeCell<MutexBlockingInner>,
+    ///
+    pub inner: UPSafeCell<MutexBlockingInner>,
 }
 
 pub struct MutexBlockingInner {
-    locked: bool,
-    wait_queue: VecDeque<Arc<TaskControlBlock>>,
+    ///
+    pub locked: bool,
+    ///
+    pub lock_acquired_task: Option<Arc<TaskControlBlock>>,
+    ///
+    pub wait_queue: VecDeque<Arc<TaskControlBlock>>,
 }
 
 impl MutexBlocking {
@@ -70,6 +83,7 @@ impl MutexBlocking {
             inner: unsafe {
                 UPSafeCell::new(MutexBlockingInner {
                     locked: false,
+                    lock_acquired_task: None,
                     wait_queue: VecDeque::new(),
                 })
             },
@@ -88,6 +102,7 @@ impl Mutex for MutexBlocking {
             block_current_and_run_next();
         } else {
             mutex_inner.locked = true;
+            mutex_inner.lock_acquired_task = current_task(); // clone
         }
     }
 
@@ -100,6 +115,11 @@ impl Mutex for MutexBlocking {
             wakeup_task(waking_task);
         } else {
             mutex_inner.locked = false;
+            mutex_inner.lock_acquired_task = None;
         }
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
